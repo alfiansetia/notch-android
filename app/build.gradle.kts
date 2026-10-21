@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.compose.icons)
     implementation(libs.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.savedstate)
 
     // Persistence — DataStore (settings) + Room (todo, inbox, hydrate)
     implementation(libs.datastore.preferences)

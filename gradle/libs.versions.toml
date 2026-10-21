@@ -13,7 +13,9 @@ coroutines = "1.9.0"
 [libraries]
 androidx-core = "androidx.core:core-ktx:1.15.0"
 androidx-lifecycle-runtime = "androidx.lifecycle:lifecycle-runtime-ktx:2.8.6"
-androidx-lifecycle-viewmodel = "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6"
+androidx-lifecycle-viewmodel = "androidx.lifecycle:lifecycle-viewmodel:2.8.6"
+androidx-lifecycle-viewmodel-compose = "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6"
+androidx-savedstate = "androidx.savedstate:savedstate:2.1.0"
 androidx-activity-compose = "androidx.activity:activity-compose:1.9.3"
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
