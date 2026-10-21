@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -323,12 +322,15 @@ private fun InboxTab(
         }
         Row(
             Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                .combinedClickable(onClick = { onOpen(item) }, onLongClick = { onCopy(item) }),
+                .clickable(onClick = { onOpen(item) }),
             Arrangement.SpaceBetween, Alignment.CenterVertically
         ) {
             Text(label, color = c, style = MaterialTheme.typography.bodySmall,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text("✕", color = c, modifier = Modifier.clickable { onRemove(item) }.padding(4.dp))
+            Text("Copy", color = c,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.clickable { onCopy(item) }.padding(6.dp))
+            Text("✕", color = c, modifier = Modifier.clickable { onRemove(item) }.padding(6.dp))
         }
     }
 }
