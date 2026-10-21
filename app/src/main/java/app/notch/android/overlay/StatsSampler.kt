@@ -63,6 +63,11 @@ class StatsSampler(
     fun glimpse(text: String, ms: Long = 4000) {
         glimpseText = text
         glimpseUntil = System.currentTimeMillis() + ms
+        refreshNow()
+    }
+
+    fun refreshNow() {
+        scope.launch { _state.value = sample() }
     }
 
     private fun sample(): StatsState {

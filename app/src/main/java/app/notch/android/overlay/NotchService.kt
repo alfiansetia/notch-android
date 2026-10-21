@@ -77,6 +77,11 @@ class NotchService : Service() {
     private val todoList = MutableStateFlow<List<TodoItem>>(emptyList())
     private val hydrateMl = MutableStateFlow(0)
     private val lastTouch = MutableStateFlow(System.currentTimeMillis())
+    // Semua render lewat State — setContent cuma sekali (tap tak pernah kalah balapan).
+    private val settingsState = MutableStateFlow(NotchSettings())
+    private val dndState = MutableStateFlow(false)
+    private val mediaGrantedState = MutableStateFlow(false)
+    private val tick = MutableStateFlow(System.currentTimeMillis())
     private lateinit var inboxRepo: InboxRepository
     private lateinit var todoRepo: TodoRepository
     private lateinit var hydrateRepo: HydrateRepository
@@ -93,7 +98,6 @@ class NotchService : Service() {
             delay(200)
             if (Settings.canDrawOverlays(this@NotchService) && !settings.hidden) {
                 if (overlayView == null) showOverlay() else relayout()
-                refreshOverlay()
             }
         }
     }
@@ -110,7 +114,6 @@ class NotchService : Service() {
     private val eyeReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             sampler.glimpse("Eye break: 20-20-20")
-            refreshOverlay()
         }
     }
 
@@ -144,6 +147,7 @@ class NotchService : Service() {
             repo.settings.collect {
                 val wasHidden = settings.hidden
                 settings = it
+                settingsState.value = it
                 refreshNotification()
                 ReminderScheduler.apply(
                     applicationContext, it.hydrateEnabled, it.hydrateCadenceMins,
@@ -154,17 +158,18 @@ class NotchService : Service() {
                     if (overlayView == null) showOverlay() else relayout()
                 }
                 if (wasHidden != it.hidden) updateTileRequest()
-                refreshOverlay()
             }
         }
-        scope.launch { inboxRepo.observe().collect { inboxList.value = it; refreshOverlay() } }
-        scope.launch { todoRepo.observe().collect { todoList.value = it; refreshOverlay() } }
-        scope.launch { hydrateRepo.observeToday().collect { hydrateMl.value = it; refreshOverlay() } }
-        // Eyes ticker: refresh tiap 5 dtk agar auto/doze/low-battery live (AFR-13.5)
+        scope.launch { inboxRepo.observe().collect { inboxList.value = it } }
+        scope.launch { todoRepo.observe().collect { todoList.value = it } }
+        scope.launch { hydrateRepo.observeToday().collect { hydrateMl.value = it } }
+        // Eyes ticker: cukup bump state 5 dtk; komposisi yg baca ulang (AFR-13.5).
         scope.launch {
             while (isActive) {
                 delay(5000)
-                refreshOverlay()
+                tick.value = System.currentTimeMillis()
+                dndState.value = DndController.isDnd(this@NotchService)
+                mediaGrantedState.value = MediaObserver.isListenerEnabled(this@NotchService)
             }
         }
         scope.launch {
@@ -208,7 +213,6 @@ class NotchService : Service() {
                     else -> np?.title
                 }
                 sampler.setTitle(title)
-                refreshOverlay()
             }
         }
     }
@@ -216,6 +220,8 @@ class NotchService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // PRD 7.5: listener bisa mati setelah update — re-check tiap start.
         media.refresh()
+        dndState.value = DndController.isDnd(this)
+        mediaGrantedState.value = MediaObserver.isListenerEnabled(this)
         when (intent?.action) {
             ACTION_HIDE -> scope.launch { repo.setHidden(true) }
             ACTION_SHOW -> scope.launch { repo.setHidden(false) }
@@ -224,7 +230,6 @@ class NotchService : Service() {
             ACTION_FLASH_INBOX -> {
                 sampler.glimpse("Saved to inbox")
                 expanded.value = false
-                refreshOverlay()
             }
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -250,29 +255,33 @@ class NotchService : Service() {
                 val inbox by inboxList.collectAsState()
                 val todos by todoList.collectAsState()
                 val hydro by hydrateMl.collectAsState()
-                val now = System.currentTimeMillis()
-                val touchedAgo = now - lastTouch.collectAsState().value
+                val cfg by settingsState.collectAsState()
+                val dnd by dndState.collectAsState()
+                val mGranted by mediaGrantedState.collectAsState()
+                tick.collectAsState().value // trigger recompute tiap 5 dtk
+                val lastT by lastTouch.collectAsState()
+                val touchedAgo = System.currentTimeMillis() - lastT
                 val timerIdle = t.mode == "none"
-                val showEyes = settings.eyesMode == 2 ||
-                    (settings.eyesMode == 1 && np?.title == null && timerIdle && touchedAgo > 60_000)
+                val showEyes = cfg.eyesMode == 2 ||
+                    (cfg.eyesMode == 1 && np?.title == null && timerIdle && touchedAgo > 60_000)
                 val dozing = touchedAgo > 20_000
                 val lowBatt = stats.batteryPct in 1..20
                 NotchOverlay(
                     expanded = isExpanded,
-                    pillSize = settings.pillSize,
+                    pillSize = cfg.pillSize,
                     stats = stats,
                     nowPlaying = np,
-                    mediaGranted = MediaObserver.isListenerEnabled(this@NotchService),
+                    mediaGranted = mGranted,
                     timer = t,
                     torchOn = torchState,
-                    dndOn = DndController.isDnd(this@NotchService),
+                    dndOn = dnd,
                     inbox = inbox,
                     todos = todos,
                     hydrateMl = hydro,
-                    showInbox = settings.inboxEnabled,
-                    showTodo = settings.todoEnabled,
-                    showHydrate = settings.hydrateEnabled,
-                    style = settings.style,
+                    showInbox = cfg.inboxEnabled,
+                    showTodo = cfg.todoEnabled,
+                    showHydrate = cfg.hydrateEnabled,
+                    style = cfg.style,
                     showEyes = showEyes,
                     eyesDozing = dozing,
                     lowBattery = lowBatt,
@@ -304,7 +313,7 @@ class NotchService : Service() {
                         if (!ok) startActivity(DndController.grantIntent().apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         })
-                        refreshOverlay()
+                        dndState.value = DndController.isDnd(this@NotchService)
                     },
                     onKeepScreen = {
                         keepScreenOn = !keepScreenOn
@@ -427,10 +436,6 @@ class NotchService : Service() {
         }
     }
 
-    private fun refreshOverlay() {
-        overlayView?.let { composeContent(it) }
-    }
-
     private fun removeOverlay() {
         overlayView?.let {
             try { wm.removeView(it) } catch (_: Exception) { }
@@ -545,7 +550,6 @@ class NotchService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("Notch inbox", text))
         sampler.glimpse("Copied")
-        refreshOverlay()
     }
 
     override fun onDestroy() {
