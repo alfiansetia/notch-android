@@ -16,21 +16,24 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.ViewTreeLifecycleOwner
 import androidx.lifecycle.ViewTreeViewModelStoreOwner
 import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import app.notch.android.actions.DndController
+import app.notch.android.actions.FlashlightController
 import app.notch.android.data.NotchSettings
 import app.notch.android.data.SettingsRepository
+import app.notch.android.media.MediaObserver
 import app.notch.android.settings.SettingsActivity
+import app.notch.android.timer.TimerFinishReceiver
+import app.notch.android.timer.TimerRepository
+import app.notch.android.timer.TimerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,13 +41,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class NotchService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var repo: SettingsRepository
+    private lateinit var timerRepo: TimerRepository
     private lateinit var sampler: StatsSampler
+    private lateinit var media: MediaObserver
+    private lateinit var torch: FlashlightController
     private lateinit var wm: WindowManager
 
     private var overlayView: ComposeView? = null
@@ -52,18 +60,17 @@ class NotchService : Service() {
     private var params: WindowManager.LayoutParams? = null
 
     private val expanded = MutableStateFlow(false)
+    private val timerUi = MutableStateFlow(TimerState())
+    private val torchOn = MutableStateFlow(false)
     private var settings = NotchSettings()
     private var autoCollapseJob: Job? = null
-    private var screenOn = true
+    private var keepScreenOn = false
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
             when (i?.action) {
-                Intent.ACTION_SCREEN_OFF -> screenOn = false
-                Intent.ACTION_SCREEN_ON -> {
-                    screenOn = true
-                    sampler.start()
-                }
+                Intent.ACTION_SCREEN_OFF -> Unit // sampler loop tetap jalan 2s tapi murah; screen-off pause = skip
+                Intent.ACTION_SCREEN_ON -> sampler.start()
             }
         }
     }
@@ -73,9 +80,12 @@ class NotchService : Service() {
     override fun onCreate() {
         super.onCreate()
         repo = SettingsRepository(applicationContext)
+        timerRepo = TimerRepository(applicationContext)
         sampler = StatsSampler(applicationContext, scope)
+        media = MediaObserver(applicationContext, scope)
+        torch = FlashlightController(applicationContext)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        ensureChannel()
+        ensureChannels()
         startForeground(
             NOTIF_ID,
             buildNotif(hidden = false),
@@ -103,6 +113,44 @@ class NotchService : Service() {
                 if (isExpanded) armAutoCollapse() else autoCollapseJob?.cancel()
             }
         }
+        // Timer ticker 1s: hitung remaining/stopwatch, finish -> pulse + notif
+        scope.launch {
+            timerRepo.persisted.collect { p ->
+                while (isActive) {
+                    val now = System.currentTimeMillis()
+                    when (p.mode) {
+                        "countdown" -> {
+                            val rem = ((p.deadlineMs - now) / 1000).coerceAtLeast(0)
+                            timerUi.value = TimerState("countdown", rem)
+                            if (rem <= 0) {
+                                timerRepo.clear()
+                                sampler.glimpse("Timer done")
+                                fireTimerNotif()
+                                expanded.value = false
+                                break
+                            }
+                        }
+                        "stopwatch" -> {
+                            timerUi.value = TimerState("stopwatch", 0, (now - p.swBaseMs) / 1000)
+                        }
+                        else -> timerUi.value = TimerState()
+                    }
+                    delay(1000)
+                }
+            }
+        }
+        // NowPlaying title -> collapsed slot fallback (AFR-9.5)
+        scope.launch {
+            combine(media.nowPlaying, timerUi) { np, t -> np to t }.collect { (np, t) ->
+                val title = when {
+                    t.mode == "countdown" -> "Timer ${t.remainingSecs}s"
+                    t.mode == "stopwatch" -> "Stopwatch"
+                    else -> np?.title
+                }
+                sampler.setTitle(title)
+                refreshOverlay()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -113,7 +161,6 @@ class NotchService : Service() {
             ACTION_COLLAPSE -> expanded.value = false
         }
         if (!Settings.canDrawOverlays(this)) {
-            // AFR-4.4: jangan crash/loop, idle di notif+tile
             removeOverlay()
             refreshNotification()
             return START_STICKY
@@ -125,6 +172,61 @@ class NotchService : Service() {
 
     // ---- overlay window ----
 
+    private fun composeContent(view: ComposeView) {
+        view.setContent {
+            MaterialTheme {
+                val isExpanded by expanded.collectAsState()
+                val stats by sampler.state.collectAsState()
+                val np by media.nowPlaying.collectAsState()
+                val t by timerUi.collectAsState()
+                val torchState by torchOn.collectAsState()
+                NotchOverlay(
+                    expanded = isExpanded,
+                    pillSize = settings.pillSize,
+                    stats = stats,
+                    nowPlaying = np,
+                    mediaGranted = MediaObserver.isListenerEnabled(this@NotchService),
+                    timer = t,
+                    torchOn = torchState,
+                    dndOn = DndController.isDnd(this@NotchService),
+                    onPillTap = { expanded.value = true },
+                    onCollapse = { expanded.value = false },
+                    onPlayPause = { media.toggle() },
+                    onNext = { media.next() },
+                    onPrev = { media.prev() },
+                    onSeek = { v -> media.seekTo(v.toLong()) },
+                    onMediaGrant = { startActivity(MediaObserver.grantIntent().apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }) },
+                    onCountdown = { ms -> scope.launch { timerRepo.startCountdown(ms) } },
+                    onStopwatch = { scope.launch { timerRepo.startStopwatch() } },
+                    onTimerClear = { scope.launch { timerRepo.clear() } },
+                    onTorch = {
+                        val ok = torch.toggle()
+                        if (!ok) {
+                            // grant kamera missing -> buka app settings (honest fallback AFR-11.4)
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                        } else torchOn.value = !torchOn.value
+                    },
+                    onDnd = {
+                        val ok = DndController.toggle(this@NotchService)
+                        if (!ok) startActivity(DndController.grantIntent().apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                        refreshOverlay()
+                    },
+                    onKeepScreen = {
+                        keepScreenOn = !keepScreenOn
+                        overlayView?.keepScreenOn = keepScreenOn && expanded.value
+                    }
+                )
+            }
+        }
+    }
+
     private fun showOverlay() {
         if (overlayView != null) return
         val owner = OverlayLifecycleOwner().also { it.onCreate(); it.onResume() }
@@ -133,20 +235,6 @@ class NotchService : Service() {
             ViewTreeLifecycleOwner.set(this, owner)
             ViewTreeViewModelStoreOwner.set(this, owner)
             ViewTreeSavedStateRegistryOwner.set(this, owner)
-            setContent {
-                MaterialTheme {
-                    val isExpanded by expanded.collectAsState()
-                    val stats by sampler.state.collectAsState()
-                    NotchOverlay(
-                        expanded = isExpanded,
-                        pillSize = settings.pillSize,
-                        stats = stats,
-                        onPillTap = { expanded.value = true },
-                        onCollapse = { expanded.value = false }
-                    )
-                }
-            }
-            // Tap-outside collapse (FLAG_WATCH_OUTSIDE_TOUCH -> ACTION_OUTSIDE)
             setOnTouchListener { _, e ->
                 if (e.action == MotionEvent.ACTION_OUTSIDE && expanded.value) {
                     expanded.value = false
@@ -154,6 +242,8 @@ class NotchService : Service() {
                 } else false
             }
         }
+        overlayView = view
+        composeContent(view)
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -166,7 +256,6 @@ class NotchService : Service() {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = (settings.yOffsetDp * resources.displayMetrics.density).toInt()
         }
-        overlayView = view
         try {
             wm.addView(view, params)
         } catch (_: Exception) {
@@ -178,7 +267,6 @@ class NotchService : Service() {
         val view = overlayView ?: return
         val p = params ?: return
         p.y = (settings.yOffsetDp * resources.displayMetrics.density).toInt()
-        // Back hanya saat expanded: lepas NOT_FOCUSABLE biar KEYCODE_BACK sampai.
         p.flags = if (expanded.value) {
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
@@ -187,9 +275,8 @@ class NotchService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
         }
-        try {
-            wm.updateViewLayout(view, p)
-        } catch (_: Exception) { }
+        try { wm.updateViewLayout(view, p) } catch (_: Exception) { }
+        view.keepScreenOn = keepScreenOn && expanded.value
         if (expanded.value) {
             view.isFocusableInTouchMode = true
             view.requestFocus()
@@ -204,20 +291,10 @@ class NotchService : Service() {
         } else {
             view.setOnKeyListener(null)
         }
-        // Re-compose biar pillSize/yOffset live (AFR-7.5)
-        view.setContent {
-            MaterialTheme {
-                val isExpanded by expanded.collectAsState()
-                val stats by sampler.state.collectAsState()
-                NotchOverlay(
-                    expanded = isExpanded,
-                    pillSize = settings.pillSize,
-                    stats = stats,
-                    onPillTap = { expanded.value = true },
-                    onCollapse = { expanded.value = false }
-                )
-            }
-        }
+    }
+
+    private fun refreshOverlay() {
+        overlayView?.let { composeContent(it) }
     }
 
     private fun removeOverlay() {
@@ -240,12 +317,28 @@ class NotchService : Service() {
         }
     }
 
-    // ---- notification (AFR-4.1) ----
+    // ---- notifications ----
 
-    private fun ensureChannel() {
+    private fun ensureChannels() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Notch service", NotificationManager.IMPORTANCE_MIN)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(TimerFinishReceiver.CHANNEL, "Notch reminders", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+    }
+
+    private fun fireTimerNotif() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(
+            3001,
+            NotificationCompat.Builder(this, TimerFinishReceiver.CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle("Timer finished")
+                .setContentText("Countdown selesai")
+                .setAutoCancel(true)
+                .build()
         )
     }
 
@@ -309,7 +402,6 @@ class NotchService : Service() {
         const val ACTION_TOGGLE = "app.notch.TOGGLE"
         const val ACTION_COLLAPSE = "app.notch.COLLAPSE"
 
-        // dipakai tes regresi AFR-3.3: window collapsed tak boleh > pill+slack
         fun maxCollapsedSizePx(pillSize: Int, density: Float): Pair<Int, Int> {
             val (w, h) = when (pillSize) {
                 0 -> 160 to 30

@@ -32,9 +32,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import app.notch.android.actions.DndController
 import app.notch.android.data.NotchSettings
 import app.notch.android.data.SettingsRepository
+import app.notch.android.media.MediaObserver
 import app.notch.android.overlay.NotchService
+import app.notch.android.timer.TimerAlarm
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -110,6 +113,29 @@ class SettingsActivity : ComponentActivity() {
 
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp)) {
+                                Text("Grants (P3)", style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                val mediaOk = MediaObserver.isListenerEnabled(this@SettingsActivity)
+                                RowGrant(
+                                    label = if (mediaOk) "Media: granted" else "Media: butuh Notification access",
+                                    btn = if (mediaOk) null else "Grant"
+                                ) { startActivity(MediaObserver.grantIntent()) }
+                                val dndOk = DndController.hasAccess(this@SettingsActivity)
+                                RowGrant(
+                                    label = if (dndOk) "DND toggle: ready" else "DND: butuh Policy access",
+                                    btn = if (dndOk) null else "Grant"
+                                ) { startActivity(DndController.grantIntent()) }
+                                val exactOk = TimerAlarm.canExact(this@SettingsActivity)
+                                RowGrant(
+                                    label = if (exactOk) "Timer: exact alarm ok"
+                                    else "Timer: inexact (AFR-11.2)",
+                                    btn = if (exactOk) null else "Grant"
+                                ) { startActivity(TimerAlarm.exactGrantIntent()) }
+                            }
+                        }
+
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
                                 RowToggle("Start at boot", s.startAtBoot) { vm.setBoot(it) }
                                 RowToggle("Hide pill", s.hidden) {
                                     vm.setHidden(it)
@@ -164,6 +190,18 @@ class SettingsActivity : ComponentActivity() {
 
     // canDrawOverlays dibaca tiap composition; refresh via onRestart bawaan
     // (tanpa recreate agar tidak loop).
+}
+
+@androidx.compose.runtime.Composable
+private fun RowGrant(label: String, btn: String?, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        if (btn != null) OutlinedButton(onClick = onClick) { Text(btn) }
+    }
 }
 
 @androidx.compose.runtime.Composable
