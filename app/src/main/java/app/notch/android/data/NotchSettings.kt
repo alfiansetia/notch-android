@@ -20,5 +20,7 @@ data class NotchSettings(
     val style: Int = 0,
     // relaxed-eyes: 0 off, 1 auto, 2 always
     val eyesMode: Int = 0,
+    // 0.3-1.0, default opaque
+    val panelOpacity: Float = 1f,
     val oemCardDismissed: Boolean = false
 )

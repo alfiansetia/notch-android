@@ -59,6 +59,7 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setEyeCad(m: Int) = viewModelScope.launch { repo.setEyeCadence(m) }
     fun setStyle(v: Int) = viewModelScope.launch { repo.setStyle(v) }
     fun setEyes(v: Int) = viewModelScope.launch { repo.setEyesMode(v) }
+    fun setOpacity(v: Float) = viewModelScope.launch { repo.setPanelOpacity(v) }
     fun dismissOem() = viewModelScope.launch { repo.setOemDismissed(true) }
 }
 
@@ -225,6 +226,13 @@ class SettingsActivity : ComponentActivity() {
                                         OutlinedButton(onClick = { vm.setEyes(i) }) { Text(name) }
                                     }
                                 }
+                                Spacer(Modifier.height(4.dp))
+                                Text("Opacity: ${(s.panelOpacity * 100).toInt()}%")
+                                Slider(
+                                    value = s.panelOpacity,
+                                    onValueChange = { vm.setOpacity(it) },
+                                    valueRange = 0.3f..1f
+                                )
                             }
                         }
 

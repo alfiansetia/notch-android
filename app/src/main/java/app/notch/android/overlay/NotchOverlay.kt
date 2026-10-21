@@ -23,6 +23,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,6 +73,7 @@ fun NotchOverlay(
     eyesDozing: Boolean = false,
     lowBattery: Boolean = false,
     reduceMotion: Boolean = false,
+    panelOpacity: Float = 1f,
     onPillTap: () -> Unit,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit = {},
@@ -121,12 +123,18 @@ fun NotchOverlay(
     }
 
     Surface(
-        modifier = Modifier.size(animW, animH).semantics {
-            contentDescription = if (expanded) "Notch panel" else "Notch pill: $w"
-        },
+        modifier = Modifier.size(animW, animH)
+            .semantics {
+                contentDescription = if (expanded) "Notch panel" else "Notch pill: $w"
+            }
+            // Fallback: seluruh permukaan pill bisa di-tap, bukan cuma inner Row/Box.
+            // Kalau tap tengah mati (zona punch-hole), tap tepi bawah tetap kena.
+            .clickable(enabled = !expanded, onClick = onPillTap),
         shape = shape,
-        color = MaterialTheme.colorScheme.inverseSurface,
-        tonalElevation = 6.dp
+        // Hitam pekat: base pure black, bukan inverseSurface (abu ~#1F1F1F).
+        // tonalElevation dimatikan karena M3 tint bikin abu di 100%.
+        color = Color.Black.copy(alpha = panelOpacity),
+        tonalElevation = 0.dp
     ) {
         if (!expanded) {
             val collapsedText = stats.glimpse

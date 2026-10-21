@@ -286,7 +286,12 @@ class NotchService : Service() {
                     eyesDozing = dozing,
                     lowBattery = lowBatt,
                     reduceMotion = MotionHelper.isReducedMotion(this@NotchService),
-                    onPillTap = { lastTouch.value = System.currentTimeMillis(); expanded.value = true },
+                    panelOpacity = cfg.panelOpacity,
+                    onPillTap = {
+                        android.util.Log.d("NotchTap", "pillTap fired")
+                        lastTouch.value = System.currentTimeMillis()
+                        expanded.value = true
+                    },
                     onCollapse = { lastTouch.value = System.currentTimeMillis(); expanded.value = false },
                     onPlayPause = { media.toggle() },
                     onNext = { media.next() },
@@ -334,13 +339,12 @@ class NotchService : Service() {
 
     private fun windowY(): Int {
         val density = resources.displayMetrics.density
-        val user = (settings.yOffsetDp * density).toInt()
-        // AFR-6.1: hindari cutout kecuali Poni yang memang gantung di cutout.
-        if (settings.style == 2) return user
-        val cutout = try {
-            overlayView?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
-        } catch (_: Exception) { 0 }
-        return user + cutout
+        // Mentok ke tepi display fisik: y = offset user saja (0-24dp, default 0).
+        // Tablet tak berubah (cutout-nya memang 0); di HP punch-hole seperti
+        // Pixel 9 ini yang bikin pill nempel ke atas. Cutout avoidance otomatis
+        // dihapus karena dikombinasi SHORT_EDGES di bawah itu bikin double-gap.
+        // Kalau mau ada jarak manual, naikkan yOffsetDp di settings.
+        return (settings.yOffsetDp * density).toInt()
     }
 
     // Helper ViewTree* dipanggil via refleksi: kelas statisnya tak terlihat kotlinc
@@ -368,7 +372,13 @@ class NotchService : Service() {
         lifecycleOwner = owner
         val view = ComposeView(this).apply {
             attachTreeOwners(this, owner)
+            // Probe: log tiap DOWN yang sampai ke window. Kalau log ini tidak
+            // muncul saat pill di-tap = sentuhan tidak sampai (flags/z-order/size).
+            // Kalau muncul tapi pill tidak expand = Compose click yang macet.
             setOnTouchListener { _, e ->
+                if (e.action == MotionEvent.ACTION_DOWN) {
+                    android.util.Log.d("NotchTap", "touchDown expanded=" + expanded.value)
+                }
                 if (e.action == MotionEvent.ACTION_OUTSIDE && expanded.value) {
                     expanded.value = false
                     true
@@ -390,6 +400,13 @@ class NotchService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = windowY()
+            // Wajib biar y=0 = tepi fisik display, bukan bawah status bar/cutout.
+            // Tanpa ini Pixel 9 (punch-hole tengah) dipaksa turun oleh sistem
+            // walau y sudah 0. Tablet tanpa cutout tak terpengaruh.
+            if (Build.VERSION.SDK_INT >= 28) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         try {
             wm.addView(view, params)

@@ -3,6 +3,7 @@ package app.notch.android.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,7 @@ private val EYE_ENABLED = booleanPreferencesKey("eye_enabled")
 private val EYE_CADENCE = intPreferencesKey("eye_cadence_mins")
 private val STYLE = intPreferencesKey("style")
 private val EYES_MODE = intPreferencesKey("eyes_mode")
+private val PANEL_OPACITY = floatPreferencesKey("panel_opacity")
 private val OEM_DISMISSED = booleanPreferencesKey("oem_dismissed")
 
 class SettingsRepository(private val context: Context) {
@@ -44,6 +46,7 @@ class SettingsRepository(private val context: Context) {
             eyeCadenceMins = (p[EYE_CADENCE] ?: 20).coerceIn(5, 120),
             style = (p[STYLE] ?: 0).coerceIn(0, 2),
             eyesMode = (p[EYES_MODE] ?: 0).coerceIn(0, 2),
+            panelOpacity = (p[PANEL_OPACITY] ?: 1f).coerceIn(0.3f, 1f),
             oemCardDismissed = p[OEM_DISMISSED] ?: false
         )
     }
@@ -102,6 +105,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setEyesMode(v: Int) {
         context.dataStore.edit { it[EYES_MODE] = v.coerceIn(0, 2) }
+    }
+
+    suspend fun setPanelOpacity(v: Float) {
+        context.dataStore.edit { it[PANEL_OPACITY] = v.coerceIn(0.3f, 1f) }
     }
 
     suspend fun setOemDismissed(v: Boolean) {
