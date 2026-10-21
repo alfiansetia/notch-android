@@ -330,14 +330,6 @@ class NotchService : Service() {
         val cutout = try {
             overlayView?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
         } catch (_: Exception) { 0 }
-    private fun windowY(): Int {
-        val density = resources.displayMetrics.density
-        val user = (settings.yOffsetDp * density).toInt()
-        // AFR-6.1: hindari cutout kecuali Poni yang memang gantung di cutout.
-        if (settings.style == 2) return user
-        val cutout = try {
-            overlayView?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
-        } catch (_: Exception) { 0 }
         return user + cutout
     }
 
