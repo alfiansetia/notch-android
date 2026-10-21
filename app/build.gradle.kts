@@ -57,11 +57,13 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel)
 
     // Persistence — DataStore (settings) + Room (todo, inbox, hydrate)
-    implementation(libs.datastore.proto)
+    implementation(libs.datastore.preferences)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
     // Background — WorkManager (reminders)
     implementation(libs.workmanager)
+
+    testImplementation("junit:junit:4.13.2")
 }
