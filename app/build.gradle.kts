@@ -69,3 +69,26 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
 }
+
+// Plain-AAR lifecycle (2.6.2): kelas ViewTree*Owner terbukti ada di artefak ini.
+// Dipaksa agar seragam di semua configuration (ada constraint strictly 2.8.3 dari BOM).
+configurations.all {
+    resolutionStrategy {
+        force(
+            "androidx.lifecycle:lifecycle-runtime:2.6.2",
+            "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2",
+            "androidx.lifecycle:lifecycle-runtime-compose:2.6.2",
+            "androidx.lifecycle:lifecycle-viewmodel:2.6.2",
+            "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2",
+            "androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2",
+            "androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2",
+            "androidx.lifecycle:lifecycle-livedata:2.6.2",
+            "androidx.lifecycle:lifecycle-livedata-core:2.6.2",
+            "androidx.lifecycle:lifecycle-livedata-core-ktx:2.6.2",
+            "androidx.lifecycle:lifecycle-common:2.6.2",
+            "androidx.lifecycle:lifecycle-common-java8:2.6.2",
+            "androidx.lifecycle:lifecycle-process:2.6.2",
+            "androidx.lifecycle:lifecycle-service:2.6.2"
+        )
+    }
+}
