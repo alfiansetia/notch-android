@@ -184,6 +184,7 @@ fun NotchOverlay(
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
+            }
         } else {
             val tabs = buildList {
                 add("Media"); add("Focus")
