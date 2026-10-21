@@ -49,6 +49,13 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setPill(v: Int) = viewModelScope.launch { repo.setPillSize(v) }
     fun setY(v: Int) = viewModelScope.launch { repo.setYOffset(v) }
     fun setCollapse(v: Int) = viewModelScope.launch { repo.setAutoCollapse(v) }
+    fun setInbox(v: Boolean) = viewModelScope.launch { repo.setInboxEnabled(v) }
+    fun setRetention(d: Int) = viewModelScope.launch { repo.setInboxRetention(d) }
+    fun setTodo(v: Boolean) = viewModelScope.launch { repo.setTodoEnabled(v) }
+    fun setHydrate(v: Boolean) = viewModelScope.launch { repo.setHydrateEnabled(v) }
+    fun setHydrateCad(m: Int) = viewModelScope.launch { repo.setHydrateCadence(m) }
+    fun setEye(v: Boolean) = viewModelScope.launch { repo.setEyeEnabled(v) }
+    fun setEyeCad(m: Int) = viewModelScope.launch { repo.setEyeCadence(m) }
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -167,6 +174,40 @@ class SettingsActivity : ComponentActivity() {
                                     value = s.autoCollapseSecs.toFloat(),
                                     onValueChange = { vm.setCollapse(it.toInt()) },
                                     valueRange = 0f..30f, steps = 29
+                                )
+                            }
+                        }
+
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Inbox & Todo (P4)", style = MaterialTheme.typography.titleSmall)
+                                RowToggle("Inbox enabled", s.inboxEnabled) { vm.setInbox(it) }
+                                Text("Retention: ${s.inboxRetentionDays} hari")
+                                Slider(
+                                    value = s.inboxRetentionDays.toFloat(),
+                                    onValueChange = { vm.setRetention(it.toInt()) },
+                                    valueRange = 1f..90f, steps = 88
+                                )
+                                RowToggle("Todo enabled", s.todoEnabled) { vm.setTodo(it) }
+                            }
+                        }
+
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Reminders (P4)", style = MaterialTheme.typography.titleSmall)
+                                RowToggle("Hydrate", s.hydrateEnabled) { vm.setHydrate(it) }
+                                Text("Cadence: ${s.hydrateCadenceMins} mnt (15–240)")
+                                Slider(
+                                    value = s.hydrateCadenceMins.toFloat(),
+                                    onValueChange = { vm.setHydrateCad(it.toInt()) },
+                                    valueRange = 15f..240f, steps = 14
+                                )
+                                RowToggle("Eye break 20-20-20", s.eyeEnabled) { vm.setEye(it) }
+                                Text("Cadence: ${s.eyeCadenceMins} mnt (5–120)")
+                                Slider(
+                                    value = s.eyeCadenceMins.toFloat(),
+                                    onValueChange = { vm.setEyeCad(it.toInt()) },
+                                    valueRange = 5f..120f, steps = 22
                                 )
                             }
                         }

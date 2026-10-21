@@ -15,6 +15,13 @@ private val START_AT_BOOT = booleanPreferencesKey("start_at_boot")
 private val PILL_SIZE = intPreferencesKey("pill_size")
 private val Y_OFFSET = intPreferencesKey("y_offset_dp")
 private val AUTO_COLLAPSE = intPreferencesKey("auto_collapse_secs")
+private val INBOX_ENABLED = booleanPreferencesKey("inbox_enabled")
+private val INBOX_RETENTION = intPreferencesKey("inbox_retention_days")
+private val TODO_ENABLED = booleanPreferencesKey("todo_enabled")
+private val HYDRATE_ENABLED = booleanPreferencesKey("hydrate_enabled")
+private val HYDRATE_CADENCE = intPreferencesKey("hydrate_cadence_mins")
+private val EYE_ENABLED = booleanPreferencesKey("eye_enabled")
+private val EYE_CADENCE = intPreferencesKey("eye_cadence_mins")
 
 class SettingsRepository(private val context: Context) {
 
@@ -24,7 +31,14 @@ class SettingsRepository(private val context: Context) {
             startAtBoot = p[START_AT_BOOT] ?: false,
             pillSize = (p[PILL_SIZE] ?: 1).coerceIn(0, 2),
             yOffsetDp = (p[Y_OFFSET] ?: 0).coerceIn(0, 24),
-            autoCollapseSecs = (p[AUTO_COLLAPSE] ?: 8).coerceIn(0, 60)
+            autoCollapseSecs = (p[AUTO_COLLAPSE] ?: 8).coerceIn(0, 60),
+            inboxEnabled = p[INBOX_ENABLED] ?: true,
+            inboxRetentionDays = (p[INBOX_RETENTION] ?: 30).coerceIn(1, 365),
+            todoEnabled = p[TODO_ENABLED] ?: true,
+            hydrateEnabled = p[HYDRATE_ENABLED] ?: false,
+            hydrateCadenceMins = (p[HYDRATE_CADENCE] ?: 60).coerceIn(15, 240),
+            eyeEnabled = p[EYE_ENABLED] ?: false,
+            eyeCadenceMins = (p[EYE_CADENCE] ?: 20).coerceIn(5, 120)
         )
     }
 
@@ -46,5 +60,33 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoCollapse(secs: Int) {
         context.dataStore.edit { it[AUTO_COLLAPSE] = secs.coerceIn(0, 60) }
+    }
+
+    suspend fun setInboxEnabled(v: Boolean) {
+        context.dataStore.edit { it[INBOX_ENABLED] = v }
+    }
+
+    suspend fun setInboxRetention(days: Int) {
+        context.dataStore.edit { it[INBOX_RETENTION] = days.coerceIn(1, 365) }
+    }
+
+    suspend fun setTodoEnabled(v: Boolean) {
+        context.dataStore.edit { it[TODO_ENABLED] = v }
+    }
+
+    suspend fun setHydrateEnabled(v: Boolean) {
+        context.dataStore.edit { it[HYDRATE_ENABLED] = v }
+    }
+
+    suspend fun setHydrateCadence(mins: Int) {
+        context.dataStore.edit { it[HYDRATE_CADENCE] = mins.coerceIn(15, 240) }
+    }
+
+    suspend fun setEyeEnabled(v: Boolean) {
+        context.dataStore.edit { it[EYE_ENABLED] = v }
+    }
+
+    suspend fun setEyeCadence(mins: Int) {
+        context.dataStore.edit { it[EYE_CADENCE] = mins.coerceIn(5, 120) }
     }
 }

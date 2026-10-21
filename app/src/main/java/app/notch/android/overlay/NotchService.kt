@@ -25,11 +25,20 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.ViewTreeLifecycleOwner
 import androidx.lifecycle.ViewTreeViewModelStoreOwner
 import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.net.Uri
 import app.notch.android.actions.DndController
 import app.notch.android.actions.FlashlightController
+import app.notch.android.data.HydrateRepository
+import app.notch.android.data.InboxRepository
 import app.notch.android.data.NotchSettings
 import app.notch.android.data.SettingsRepository
+import app.notch.android.data.TodoRepository
+import app.notch.android.data.db.InboxItem
+import app.notch.android.data.db.TodoItem
 import app.notch.android.media.MediaObserver
+import app.notch.android.reminders.ReminderScheduler
 import app.notch.android.settings.SettingsActivity
 import app.notch.android.timer.TimerFinishReceiver
 import app.notch.android.timer.TimerRepository
@@ -62,6 +71,12 @@ class NotchService : Service() {
     private val expanded = MutableStateFlow(false)
     private val timerUi = MutableStateFlow(TimerState())
     private val torchOn = MutableStateFlow(false)
+    private val inboxList = MutableStateFlow<List<InboxItem>>(emptyList())
+    private val todoList = MutableStateFlow<List<TodoItem>>(emptyList())
+    private val hydrateMl = MutableStateFlow(0)
+    private lateinit var inboxRepo: InboxRepository
+    private lateinit var todoRepo: TodoRepository
+    private lateinit var hydrateRepo: HydrateRepository
     private var settings = NotchSettings()
     private var autoCollapseJob: Job? = null
     private var keepScreenOn = false
@@ -75,12 +90,22 @@ class NotchService : Service() {
         }
     }
 
+    private val eyeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            sampler.glimpse("Eye break: 20-20-20")
+            refreshOverlay()
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         repo = SettingsRepository(applicationContext)
         timerRepo = TimerRepository(applicationContext)
+        inboxRepo = InboxRepository(applicationContext)
+        todoRepo = TodoRepository(applicationContext)
+        hydrateRepo = HydrateRepository(applicationContext)
         sampler = StatsSampler(applicationContext, scope)
         media = MediaObserver(applicationContext, scope)
         torch = FlashlightController(applicationContext)
@@ -96,17 +121,28 @@ class NotchService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
         })
         sampler.start()
+        registerReceiver(eyeReceiver, IntentFilter("app.notch.EYE_BREAK"),
+            Context.RECEIVER_NOT_EXPORTED)
         scope.launch {
             repo.settings.collect {
                 val wasHidden = settings.hidden
                 settings = it
                 refreshNotification()
+                ReminderScheduler.apply(
+                    applicationContext, it.hydrateEnabled, it.hydrateCadenceMins,
+                    it.eyeEnabled, it.eyeCadenceMins
+                )
+                scope.launch { inboxRepo.prune(it.inboxRetentionDays) }
                 if (it.hidden) removeOverlay() else if (Settings.canDrawOverlays(this@NotchService)) {
                     if (overlayView == null) showOverlay() else relayout()
                 }
                 if (wasHidden != it.hidden) updateTileRequest()
+                refreshOverlay()
             }
         }
+        scope.launch { inboxRepo.observe().collect { inboxList.value = it; refreshOverlay() } }
+        scope.launch { todoRepo.observe().collect { todoList.value = it; refreshOverlay() } }
+        scope.launch { hydrateRepo.observeToday().collect { hydrateMl.value = it; refreshOverlay() } }
         scope.launch {
             expanded.collect { isExpanded ->
                 relayout()
@@ -159,6 +195,11 @@ class NotchService : Service() {
             ACTION_SHOW -> scope.launch { repo.setHidden(false) }
             ACTION_TOGGLE -> scope.launch { repo.setHidden(!settings.hidden) }
             ACTION_COLLAPSE -> expanded.value = false
+            ACTION_FLASH_INBOX -> {
+                sampler.glimpse("Saved to inbox")
+                expanded.value = false
+                refreshOverlay()
+            }
         }
         if (!Settings.canDrawOverlays(this)) {
             removeOverlay()
@@ -180,6 +221,9 @@ class NotchService : Service() {
                 val np by media.nowPlaying.collectAsState()
                 val t by timerUi.collectAsState()
                 val torchState by torchOn.collectAsState()
+                val inbox by inboxList.collectAsState()
+                val todos by todoList.collectAsState()
+                val hydro by hydrateMl.collectAsState()
                 NotchOverlay(
                     expanded = isExpanded,
                     pillSize = settings.pillSize,
@@ -189,6 +233,12 @@ class NotchService : Service() {
                     timer = t,
                     torchOn = torchState,
                     dndOn = DndController.isDnd(this@NotchService),
+                    inbox = inbox,
+                    todos = todos,
+                    hydrateMl = hydro,
+                    showInbox = settings.inboxEnabled,
+                    showTodo = settings.todoEnabled,
+                    showHydrate = settings.hydrateEnabled,
                     onPillTap = { expanded.value = true },
                     onCollapse = { expanded.value = false },
                     onPlayPause = { media.toggle() },
@@ -221,7 +271,15 @@ class NotchService : Service() {
                     onKeepScreen = {
                         keepScreenOn = !keepScreenOn
                         overlayView?.keepScreenOn = keepScreenOn && expanded.value
-                    }
+                    },
+                    onInboxOpen = { item -> openInboxItem(item) },
+                    onInboxCopy = { item -> copyInboxItem(item) },
+                    onInboxRemove = { item -> scope.launch { inboxRepo.remove(item) } },
+                    onInboxClear = { scope.launch { inboxRepo.clearAll() } },
+                    onTodoAdd = { title -> scope.launch { todoRepo.add(title) } },
+                    onTodoToggle = { td -> scope.launch { todoRepo.toggle(td) } },
+                    onTodoClearDone = { scope.launch { todoRepo.clearDone() } },
+                    onHydrateAdd = { ml -> scope.launch { hydrateRepo.add(ml) } }
                 )
             }
         }
@@ -387,8 +445,36 @@ class NotchService : Service() {
         }
     }
 
+    private fun openInboxItem(item: InboxItem) {
+        try {
+            val intent = when (item.kind) {
+                "link" -> Intent(Intent.ACTION_VIEW, Uri.parse(item.text ?: "")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                "image" -> Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(Uri.parse("file://${item.imagePath}"), "image/*")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                else -> null
+            }
+            if (intent != null) startActivity(intent)
+            else copyInboxItem(item)
+        } catch (_: Exception) {
+            copyInboxItem(item)
+        }
+    }
+
+    private fun copyInboxItem(item: InboxItem) {
+        val text = item.text ?: item.imagePath ?: return
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Notch inbox", text))
+        sampler.glimpse("Copied")
+        refreshOverlay()
+    }
+
     override fun onDestroy() {
         try { unregisterReceiver(screenReceiver) } catch (_: Exception) { }
+        try { unregisterReceiver(eyeReceiver) } catch (_: Exception) { }
         removeOverlay()
         scope.cancel()
         super.onDestroy()
@@ -401,6 +487,7 @@ class NotchService : Service() {
         const val ACTION_HIDE = "app.notch.HIDE"
         const val ACTION_TOGGLE = "app.notch.TOGGLE"
         const val ACTION_COLLAPSE = "app.notch.COLLAPSE"
+        const val ACTION_FLASH_INBOX = "app.notch.FLASH_INBOX"
 
         fun maxCollapsedSizePx(pillSize: Int, density: Float): Pair<Int, Int> {
             val (w, h) = when (pillSize) {
