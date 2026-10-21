@@ -15,5 +15,9 @@ data class NotchSettings(
     val hydrateEnabled: Boolean = false,
     val hydrateCadenceMins: Int = 60,
     val eyeEnabled: Boolean = false,
-    val eyeCadenceMins: Int = 20
+    val eyeCadenceMins: Int = 20,
+    // P4.1 styles: 0 Dynamic, 1 Bulat, 2 Poni
+    val style: Int = 0,
+    // relaxed-eyes: 0 off, 1 auto, 2 always
+    val eyesMode: Int = 0
 )

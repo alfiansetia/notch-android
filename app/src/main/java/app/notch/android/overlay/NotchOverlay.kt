@@ -63,6 +63,10 @@ fun NotchOverlay(
     showInbox: Boolean = true,
     showTodo: Boolean = true,
     showHydrate: Boolean = true,
+    style: Int = 0,
+    showEyes: Boolean = false,
+    eyesDozing: Boolean = false,
+    lowBattery: Boolean = false,
     onPillTap: () -> Unit,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit = {},
@@ -86,14 +90,22 @@ fun NotchOverlay(
     onHydrateAdd: (Int) -> Unit = {}
 ) {
     val (w, h) = pillSizeDp(pillSize)
-    val targetW = if (expanded) 320.dp else w
-    val targetH = if (expanded) 300.dp else h
+    val targetW = if (expanded) 320.dp else if (style == 1) 44.dp else w
+    val targetH = if (expanded) 300.dp else if (style == 1) 44.dp else h
     val animW by animateDpAsState(targetW, spring(Spring.DampingRatioMediumBouncy), label = "nw")
     val animH by animateDpAsState(targetH, spring(Spring.DampingRatioMediumBouncy), label = "nh")
+    val shape = when {
+        expanded -> MaterialTheme.shapes.extraLarge
+        style == 1 -> androidx.compose.foundation.shape.CircleShape
+        style == 2 -> androidx.compose.foundation.shape.RoundedCornerShape(
+            topStart = 0.dp, topEnd = 0.dp, bottomStart = 12.dp, bottomEnd = 12.dp
+        )
+        else -> MaterialTheme.shapes.extraLarge
+    }
 
     Surface(
         modifier = Modifier.size(animW, animH),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = shape,
         color = MaterialTheme.colorScheme.inverseSurface,
         tonalElevation = 6.dp
     ) {
@@ -102,7 +114,43 @@ fun NotchOverlay(
                 ?: nowPlaying?.title
                 ?: stats.title
                 ?: "${stats.ramPct}%  ${stats.clock}"
-            Row(
+            val inv = MaterialTheme.colorScheme.inverseOnSurface
+            when {
+                lowBattery -> Row(
+                    modifier = Modifier.size(animW, animH)
+                        .clickable(onClick = onPillTap)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                ) {
+                    BatteryRing(stats.batteryPct.coerceAtLeast(0), inv)
+                    Text("${stats.batteryPct}%", color = inv,
+                        style = MaterialTheme.typography.labelSmall)
+                }
+                showEyes -> androidx.compose.foundation.layout.Box(
+                    modifier = Modifier.size(animW, animH).clickable(onClick = onPillTap),
+                    contentAlignment = Alignment.Center
+                ) { RelaxedEyes(eyesDozing, inv) }
+                style == 1 -> androidx.compose.foundation.layout.Box(
+                    modifier = Modifier.size(animW, animH).clickable(onClick = onPillTap),
+                    contentAlignment = Alignment.Center
+                ) { AnalogClock(color = inv) }
+                style == 2 -> Row(
+                    modifier = Modifier.size(animW, animH)
+                        .clickable(onClick = onPillTap)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                ) {
+                    CameraDot()
+                    Text(
+                        collapsedText,
+                        color = inv,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                else -> Row(
                 modifier = Modifier.size(animW, animH)
                     .clickable(onClick = onPillTap)
                     .padding(horizontal = 12.dp),

@@ -22,6 +22,8 @@ private val HYDRATE_ENABLED = booleanPreferencesKey("hydrate_enabled")
 private val HYDRATE_CADENCE = intPreferencesKey("hydrate_cadence_mins")
 private val EYE_ENABLED = booleanPreferencesKey("eye_enabled")
 private val EYE_CADENCE = intPreferencesKey("eye_cadence_mins")
+private val STYLE = intPreferencesKey("style")
+private val EYES_MODE = intPreferencesKey("eyes_mode")
 
 class SettingsRepository(private val context: Context) {
 
@@ -38,7 +40,9 @@ class SettingsRepository(private val context: Context) {
             hydrateEnabled = p[HYDRATE_ENABLED] ?: false,
             hydrateCadenceMins = (p[HYDRATE_CADENCE] ?: 60).coerceIn(15, 240),
             eyeEnabled = p[EYE_ENABLED] ?: false,
-            eyeCadenceMins = (p[EYE_CADENCE] ?: 20).coerceIn(5, 120)
+            eyeCadenceMins = (p[EYE_CADENCE] ?: 20).coerceIn(5, 120),
+            style = (p[STYLE] ?: 0).coerceIn(0, 2),
+            eyesMode = (p[EYES_MODE] ?: 0).coerceIn(0, 2)
         )
     }
 
@@ -88,5 +92,13 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setEyeCadence(mins: Int) {
         context.dataStore.edit { it[EYE_CADENCE] = mins.coerceIn(5, 120) }
+    }
+
+    suspend fun setStyle(v: Int) {
+        context.dataStore.edit { it[STYLE] = v.coerceIn(0, 2) }
+    }
+
+    suspend fun setEyesMode(v: Int) {
+        context.dataStore.edit { it[EYES_MODE] = v.coerceIn(0, 2) }
     }
 }

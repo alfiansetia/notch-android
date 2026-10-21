@@ -74,6 +74,7 @@ class NotchService : Service() {
     private val inboxList = MutableStateFlow<List<InboxItem>>(emptyList())
     private val todoList = MutableStateFlow<List<TodoItem>>(emptyList())
     private val hydrateMl = MutableStateFlow(0)
+    private val lastTouch = MutableStateFlow(System.currentTimeMillis())
     private lateinit var inboxRepo: InboxRepository
     private lateinit var todoRepo: TodoRepository
     private lateinit var hydrateRepo: HydrateRepository
@@ -143,6 +144,13 @@ class NotchService : Service() {
         scope.launch { inboxRepo.observe().collect { inboxList.value = it; refreshOverlay() } }
         scope.launch { todoRepo.observe().collect { todoList.value = it; refreshOverlay() } }
         scope.launch { hydrateRepo.observeToday().collect { hydrateMl.value = it; refreshOverlay() } }
+        // Eyes ticker: refresh tiap 5 dtk agar auto/doze/low-battery live (AFR-13.5)
+        scope.launch {
+            while (isActive) {
+                delay(5000)
+                refreshOverlay()
+            }
+        }
         scope.launch {
             expanded.collect { isExpanded ->
                 relayout()
@@ -224,6 +232,13 @@ class NotchService : Service() {
                 val inbox by inboxList.collectAsState()
                 val todos by todoList.collectAsState()
                 val hydro by hydrateMl.collectAsState()
+                val now = System.currentTimeMillis()
+                val touchedAgo = now - lastTouch.collectAsState().value
+                val timerIdle = t.mode == "none"
+                val showEyes = settings.eyesMode == 2 ||
+                    (settings.eyesMode == 1 && np?.title == null && timerIdle && touchedAgo > 60_000)
+                val dozing = touchedAgo > 20_000
+                val lowBatt = stats.batteryPct in 1..20
                 NotchOverlay(
                     expanded = isExpanded,
                     pillSize = settings.pillSize,
@@ -239,8 +254,12 @@ class NotchService : Service() {
                     showInbox = settings.inboxEnabled,
                     showTodo = settings.todoEnabled,
                     showHydrate = settings.hydrateEnabled,
-                    onPillTap = { expanded.value = true },
-                    onCollapse = { expanded.value = false },
+                    style = settings.style,
+                    showEyes = showEyes,
+                    eyesDozing = dozing,
+                    lowBattery = lowBatt,
+                    onPillTap = { lastTouch.value = System.currentTimeMillis(); expanded.value = true },
+                    onCollapse = { lastTouch.value = System.currentTimeMillis(); expanded.value = false },
                     onPlayPause = { media.toggle() },
                     onNext = { media.next() },
                     onPrev = { media.prev() },
@@ -285,6 +304,25 @@ class NotchService : Service() {
         }
     }
 
+    private fun windowY(): Int {
+        val density = resources.displayMetrics.density
+        val user = (settings.yOffsetDp * density).toInt()
+        // AFR-6.1: hindari cutout kecuali Poni yang memang gantung di cutout.
+        if (settings.style == 2) return user
+        val cutout = try {
+            overlayView?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
+        } catch (_: Exception) { 0 }
+    private fun windowY(): Int {
+        val density = resources.displayMetrics.density
+        val user = (settings.yOffsetDp * density).toInt()
+        // AFR-6.1: hindari cutout kecuali Poni yang memang gantung di cutout.
+        if (settings.style == 2) return user
+        val cutout = try {
+            overlayView?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
+        } catch (_: Exception) { 0 }
+        return user + cutout
+    }
+
     private fun showOverlay() {
         if (overlayView != null) return
         val owner = OverlayLifecycleOwner().also { it.onCreate(); it.onResume() }
@@ -312,7 +350,7 @@ class NotchService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = (settings.yOffsetDp * resources.displayMetrics.density).toInt()
+            y = windowY()
         }
         try {
             wm.addView(view, params)
@@ -324,7 +362,7 @@ class NotchService : Service() {
     private fun relayout() {
         val view = overlayView ?: return
         val p = params ?: return
-        p.y = (settings.yOffsetDp * resources.displayMetrics.density).toInt()
+        p.y = windowY()
         p.flags = if (expanded.value) {
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH

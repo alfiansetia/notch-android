@@ -56,6 +56,8 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setHydrateCad(m: Int) = viewModelScope.launch { repo.setHydrateCadence(m) }
     fun setEye(v: Boolean) = viewModelScope.launch { repo.setEyeEnabled(v) }
     fun setEyeCad(m: Int) = viewModelScope.launch { repo.setEyeCadence(m) }
+    fun setStyle(v: Int) = viewModelScope.launch { repo.setStyle(v) }
+    fun setEyes(v: Int) = viewModelScope.launch { repo.setEyesMode(v) }
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -175,6 +177,30 @@ class SettingsActivity : ComponentActivity() {
                                     onValueChange = { vm.setCollapse(it.toInt()) },
                                     valueRange = 0f..30f, steps = 29
                                 )
+                            }
+                        }
+
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Appearance (P4.1)", style = MaterialTheme.typography.titleSmall)
+                                listOf("Dynamic", "Bulat", "Poni").forEachIndexed { i, name ->
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        Arrangement.SpaceBetween, Alignment.CenterVertically
+                                    ) {
+                                        Text(name)
+                                        OutlinedButton(onClick = { vm.setStyle(i) }) {
+                                            Text(if (s.style == i) "✓" else "Use")
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text("Relaxed eyes: ${listOf("Off", "Auto", "Always")[s.eyesMode]}")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("Off", "Auto", "Always").forEachIndexed { i, name ->
+                                        OutlinedButton(onClick = { vm.setEyes(i) }) { Text(name) }
+                                    }
+                                }
                             }
                         }
 
