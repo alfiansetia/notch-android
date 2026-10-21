@@ -40,6 +40,7 @@ import app.notch.android.data.db.TodoItem
 import app.notch.android.media.MediaObserver
 import app.notch.android.reminders.ReminderScheduler
 import app.notch.android.settings.SettingsActivity
+import app.notch.android.util.MotionHelper
 import app.notch.android.timer.TimerFinishReceiver
 import app.notch.android.timer.TimerRepository
 import app.notch.android.timer.TimerState
@@ -81,6 +82,20 @@ class NotchService : Service() {
     private var settings = NotchSettings()
     private var autoCollapseJob: Job? = null
     private var keepScreenOn = false
+    private var configJob: Job? = null
+
+    // PRD 7.5: re-pin setelah onConfigurationChanged, debounce 200ms (bukan saat rotasi).
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        configJob?.cancel()
+        configJob = scope.launch {
+            delay(200)
+            if (Settings.canDrawOverlays(this@NotchService) && !settings.hidden) {
+                if (overlayView == null) showOverlay() else relayout()
+                refreshOverlay()
+            }
+        }
+    }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
@@ -198,6 +213,8 @@ class NotchService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // PRD 7.5: listener bisa mati setelah update — re-check tiap start.
+        media.refresh()
         when (intent?.action) {
             ACTION_HIDE -> scope.launch { repo.setHidden(true) }
             ACTION_SHOW -> scope.launch { repo.setHidden(false) }
@@ -258,6 +275,7 @@ class NotchService : Service() {
                     showEyes = showEyes,
                     eyesDozing = dozing,
                     lowBattery = lowBatt,
+                    reduceMotion = MotionHelper.isReducedMotion(this@NotchService),
                     onPillTap = { lastTouch.value = System.currentTimeMillis(); expanded.value = true },
                     onCollapse = { lastTouch.value = System.currentTimeMillis(); expanded.value = false },
                     onPlayPause = { media.toggle() },
@@ -362,6 +380,12 @@ class NotchService : Service() {
     private fun relayout() {
         val view = overlayView ?: return
         val p = params ?: return
+        // PRD 7.5: revokasi canDrawOverlays itu silent — cek sebelum tiap update.
+        if (!Settings.canDrawOverlays(this)) {
+            removeOverlay()
+            refreshNotification()
+            return
+        }
         p.y = windowY()
         p.flags = if (expanded.value) {
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or

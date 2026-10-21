@@ -2,6 +2,7 @@ package app.notch.android.overlay
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -31,6 +32,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -67,6 +71,7 @@ fun NotchOverlay(
     showEyes: Boolean = false,
     eyesDozing: Boolean = false,
     lowBattery: Boolean = false,
+    reduceMotion: Boolean = false,
     onPillTap: () -> Unit,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit = {},
@@ -92,8 +97,17 @@ fun NotchOverlay(
     val (w, h) = pillSizeDp(pillSize)
     val targetW = if (expanded) 320.dp else if (style == 1) 44.dp else w
     val targetH = if (expanded) 300.dp else if (style == 1) 44.dp else h
-    val animW by animateDpAsState(targetW, spring(Spring.DampingRatioMediumBouncy), label = "nw")
-    val animH by animateDpAsState(targetH, spring(Spring.DampingRatioMediumBouncy), label = "nh")
+    val springSpec = spring<Dp>(dampingRatio = Spring.DampingRatioMediumBouncy)
+    val animW by animateDpAsState(
+        targetW,
+        animationSpec = if (reduceMotion) snap() else springSpec,
+        label = "nw"
+    )
+    val animH by animateDpAsState(
+        targetH,
+        animationSpec = if (reduceMotion) snap() else springSpec,
+        label = "nh"
+    )
     val shape = when {
         expanded -> MaterialTheme.shapes.extraLarge
         style == 1 -> androidx.compose.foundation.shape.CircleShape
@@ -104,7 +118,9 @@ fun NotchOverlay(
     }
 
     Surface(
-        modifier = Modifier.size(animW, animH),
+        modifier = Modifier.size(animW, animH).semantics {
+            contentDescription = if (expanded) "Notch panel" else "Notch pill: $w"
+        },
         shape = shape,
         color = MaterialTheme.colorScheme.inverseSurface,
         tonalElevation = 6.dp
@@ -189,7 +205,8 @@ fun NotchOverlay(
                                 alpha = if (safeTab == i) 1f else 0.5f
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.clickable { tab = i }.padding(4.dp)
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .clickable { tab = i }.padding(4.dp)
                         )
                     }
                 }

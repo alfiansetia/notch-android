@@ -24,6 +24,7 @@ private val EYE_ENABLED = booleanPreferencesKey("eye_enabled")
 private val EYE_CADENCE = intPreferencesKey("eye_cadence_mins")
 private val STYLE = intPreferencesKey("style")
 private val EYES_MODE = intPreferencesKey("eyes_mode")
+private val OEM_DISMISSED = booleanPreferencesKey("oem_dismissed")
 
 class SettingsRepository(private val context: Context) {
 
@@ -42,7 +43,8 @@ class SettingsRepository(private val context: Context) {
             eyeEnabled = p[EYE_ENABLED] ?: false,
             eyeCadenceMins = (p[EYE_CADENCE] ?: 20).coerceIn(5, 120),
             style = (p[STYLE] ?: 0).coerceIn(0, 2),
-            eyesMode = (p[EYES_MODE] ?: 0).coerceIn(0, 2)
+            eyesMode = (p[EYES_MODE] ?: 0).coerceIn(0, 2),
+            oemCardDismissed = p[OEM_DISMISSED] ?: false
         )
     }
 
@@ -100,5 +102,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setEyesMode(v: Int) {
         context.dataStore.edit { it[EYES_MODE] = v.coerceIn(0, 2) }
+    }
+
+    suspend fun setOemDismissed(v: Boolean) {
+        context.dataStore.edit { it[OEM_DISMISSED] = v }
     }
 }

@@ -38,6 +38,7 @@ import app.notch.android.data.SettingsRepository
 import app.notch.android.media.MediaObserver
 import app.notch.android.overlay.NotchService
 import app.notch.android.timer.TimerAlarm
+import app.notch.android.util.OemGuidance
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -58,6 +59,7 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setEyeCad(m: Int) = viewModelScope.launch { repo.setEyeCadence(m) }
     fun setStyle(v: Int) = viewModelScope.launch { repo.setStyle(v) }
     fun setEyes(v: Int) = viewModelScope.launch { repo.setEyesMode(v) }
+    fun dismissOem() = viewModelScope.launch { repo.setOemDismissed(true) }
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -86,6 +88,28 @@ class SettingsActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text("Notch Settings", style = MaterialTheme.typography.headlineSmall)
+
+                        // PRD 7.5: panduan vendor sekali, bisa dismiss.
+                        if (OemGuidance.needsGuidance() && !s.oemCardDismissed) {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text("Battery vendor", style = MaterialTheme.typography.titleSmall)
+                                    Text(OemGuidance.message(), style = MaterialTheme.typography.bodySmall)
+                                    Spacer(Modifier.height(6.dp))
+                                    OutlinedButton(onClick = { vm.dismissOem() }) { Text("Mengerti") }
+                                }
+                            }
+                        }
+
+                        // AFR-5.3: autostart gagal = warning non-blocking.
+                        if (s.startAtBoot && !canOverlay) {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text("Autostart tidak akan jalan sebelum overlay di-grant.",
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
 
                         if (!canOverlay) {
                             Card(modifier = Modifier.fillMaxWidth()) {
