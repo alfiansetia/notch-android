@@ -16,15 +16,16 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
-import androidx.lifecycle.ViewTreeLifecycleOwner
-import androidx.lifecycle.ViewTreeViewModelStoreOwner
-import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistryOwner
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
@@ -333,14 +334,31 @@ class NotchService : Service() {
         return user + cutout
     }
 
+    // Helper ViewTree* dipanggil via refleksi: kelas statisnya tak terlihat kotlinc
+    // di environment ini meski AAR-nya valid. Runtime aman — kelasnya pasti ada
+    // di APK (dipakai Activity/Compose sendiri). Ekuivalen ViewTree*.set().
+    private fun attachTreeOwners(view: View, owner: OverlayLifecycleOwner) {
+        try {
+            Class.forName("androidx.lifecycle.ViewTreeLifecycleOwner")
+                .getMethod("set", View::class.java, LifecycleOwner::class.java)
+                .invoke(null, view, owner)
+            Class.forName("androidx.lifecycle.ViewTreeViewModelStoreOwner")
+                .getMethod("set", View::class.java, ViewModelStoreOwner::class.java)
+                .invoke(null, view, owner)
+            Class.forName("androidx.savedstate.ViewTreeSavedStateRegistryOwner")
+                .getMethod("set", View::class.java, SavedStateRegistryOwner::class.java)
+                .invoke(null, view, owner)
+        } catch (e: Exception) {
+            android.util.Log.e("NotchService", "attachTreeOwners gagal", e)
+        }
+    }
+
     private fun showOverlay() {
         if (overlayView != null) return
         val owner = OverlayLifecycleOwner().also { it.onCreate(); it.onResume() }
         lifecycleOwner = owner
         val view = ComposeView(this).apply {
-            ViewTreeLifecycleOwner.set(this, owner)
-            ViewTreeViewModelStoreOwner.set(this, owner)
-            ViewTreeSavedStateRegistryOwner.set(this, owner)
+            attachTreeOwners(this, owner)
             setOnTouchListener { _, e ->
                 if (e.action == MotionEvent.ACTION_OUTSIDE && expanded.value) {
                     expanded.value = false
