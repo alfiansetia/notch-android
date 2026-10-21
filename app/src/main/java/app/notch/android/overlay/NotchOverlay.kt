@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -94,8 +95,11 @@ fun NotchOverlay(
     onTodoClearDone: () -> Unit = {},
     onHydrateAdd: (Int) -> Unit = {}
 ) {
-    val (w, h) = pillSizeDp(pillSize)
-    val targetW = if (expanded) 320.dp else if (style == 1) 44.dp else w
+    val screenWdp = LocalConfiguration.current.screenWidthDp
+    val w = AdaptiveLayout.pillWidthDp(pillSize, screenWdp).dp
+    val h = AdaptiveLayout.pillHeightDp(pillSize, screenWdp).dp
+    val panelW = AdaptiveLayout.panelWidthDp(screenWdp).dp
+    val targetW = if (expanded) panelW else if (style == 1) 44.dp else w
     val targetH = if (expanded) 300.dp else if (style == 1) 44.dp else h
     val springSpec = spring<Dp>(dampingRatio = Spring.DampingRatioMediumBouncy)
     val animW by animateDpAsState(
