@@ -1,0 +1,15 @@
+# Android / Gradle
+.gradle/
+build/
+*/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Keystore
+*.jks
+*.keystore
+
+# External
+/external/
